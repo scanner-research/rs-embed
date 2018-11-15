@@ -1,0 +1,7 @@
+/target
+/build
+/dist
+/.pytest_cache
+/rs_embed.egg-info
+Cargo.lock
+*.pyc
