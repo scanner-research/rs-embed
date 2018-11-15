@@ -6,6 +6,7 @@ extern crate memmap;
 extern crate byteorder;
 extern crate rkm;
 extern crate ndarray;
+extern crate rustlearn;
 
 use rayon::prelude::*;
 use pyo3::prelude::*;
@@ -17,6 +18,8 @@ use std::io::{Cursor, Read};
 use byteorder::{ReadBytesExt, LittleEndian};
 use memmap::{MmapOptions, Mmap};
 use rkm::kmeans_lloyd;
+use rustlearn::prelude::*;
+use rustlearn::linear_models::sgdclassifier::Hyperparameters;
 
 pub type Id = u64;
 pub type Embedding = Vec<f32>;
@@ -115,6 +118,52 @@ impl EmbeddingData {
         }
         let (_, clusters) = kmeans_lloyd(&data.view(), k);
         Ok(clusters.iter().enumerate().map(|(id, c)| (ids_and_embs[id].0, *c)).collect())
+    }
+
+    fn logreg(&self, ids: Vec<Id>, labels: Vec<f32>, min_thresh: f32, max_thresh: f32)
+              -> PyResult<Vec<(Id, f32)>> {
+        if ids.len() != labels.len() {
+            return Err(exceptions::ValueError::py_err("ids.len() != labels.len()"));
+        }
+        let embs: Vec<(Embedding, f32)> = ids.par_iter()
+            .zip(labels.par_iter())
+            .map(|(id, label)| (self.ids.binary_search(&id), *label))
+            .filter(|(r, _)| r.is_ok())
+            .map(|(r, label)| (self._read(r.unwrap()), label))
+            .collect();
+        if embs.len() == 0 {
+            return Err(exceptions::ValueError::py_err("No training examples"));
+        }
+
+        let mut x = Array::zeros(embs.len(), self.dim);
+        let mut y = Array::zeros(embs.len(), 1);
+        for i in 0..embs.len() {
+            y.set(i, 0, embs[i].1);
+            for j in 0..self.dim {
+                x.set(i, j, embs[i].0[j]);
+            }
+        }
+
+        let mut model = Hyperparameters::new(self.dim)
+            .learning_rate(0.1)
+            .l2_penalty(0.1)
+            .l1_penalty(0.0)
+            .one_vs_rest();
+
+        if !model.fit(&x, &y).is_ok() {
+            return Err(exceptions::Exception::py_err("Failed to fit model"));
+        }
+
+        let mut predictions: Vec<(Id, f32)> = self.ids.par_iter().enumerate().map(|(i, id)| {
+            let z: Embedding = self._read(i);
+            let mut x = Array::zeros(1, self.dim);
+            for i in 0..self.dim {
+                x.set(0, i, z[i]);
+            }
+            (*id, model.decision_function(&x).expect("Failed to predict").get(0, 0) as f32)
+        }).filter(|(_, s)| min_thresh <= *s && *s <= max_thresh).collect();
+        predictions.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
+        Ok(predictions)
     }
 
     #[new]

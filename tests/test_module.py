@@ -11,7 +11,7 @@ ID_PATH = os.path.join(CURRENT_DIR, '.test_ids.bin')
 DATA_PATH = os.path.join(CURRENT_DIR, '.test_data.bin')
 
 DIM = 128
-N = 100000
+N = 10000
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -74,3 +74,15 @@ def test_kmeans():
         clusters[c].append(i)
     assert len(clusters) == k
     assert sum(len(v) for v in clusters.values()) == N
+
+
+def test_logreg():
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    train_x = list(range(N))
+    train_y = [float(i % 2) for i in range(N)]
+    pred = emb_data.logreg(train_x, train_y, -1, 2)
+    assert len(pred) == N
+    assert all(a >= 0. and a <= 1. for _, a in pred)
+    # Make sure that the model does predict both classes
+    assert sum(a > 0.5 for _, a in pred) > N / 4
+    assert sum(a < 0.5 for _, a in pred) > N / 4

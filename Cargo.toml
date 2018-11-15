@@ -13,4 +13,5 @@ byteorder = "1.2.7"
 rayon = "1.0.3"
 rkm = "0.3.0"
 ndarray = "0.9.1"
+rustlearn = "0.5.0"
 pyo3 = { version = "0.5.0", features = ["extension-module"] }
