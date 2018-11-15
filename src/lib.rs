@@ -50,7 +50,7 @@ impl EmbeddingData {
         ret
     }
 
-    fn _dists(&self, xs: Vec<Vec<f32>>) -> Vec<(Id, f32)> {
+    fn _dists(&self, xs: Vec<Vec<f32>>, threshold: f32) -> Vec<(Id, f32)> {
         let mut dists: Vec<(Id, f32)> = self.ids.par_iter().enumerate().map(|(i, id)| {
             let z: Vec<f32> = self._read(i);
             (
@@ -61,7 +61,9 @@ impl EmbeddingData {
                     )).sqrt()
                 ).fold(1./0., f32::min)
             )
-        }).collect();
+        }).filter(
+            |(_, d)| *d <= threshold
+        ).collect();
         dists.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
         dists
     }
@@ -75,9 +77,7 @@ impl EmbeddingData {
         if xs.len() == 0 {
             Err(exceptions::ValueError::py_err("No input"))
         } else {
-            Ok(self._dists(xs).into_iter().filter(
-                |(_, d)| *d <= threshold
-            ).take(k).collect())
+            Ok(self._dists(xs, threshold).into_iter().take(k).collect())
         }
     }
 
@@ -88,9 +88,7 @@ impl EmbeddingData {
             let xs: Vec<Vec<f32>> = ids.iter().map(
                 |&id| self._read(self.ids.binary_search(&id).unwrap())
             ).collect();
-            Ok(self._dists(xs).into_iter().filter(
-                |(_, d)| *d <= threshold
-            ).take(k).collect())
+            Ok(self._dists(xs, threshold).into_iter().take(k).collect())
         }
     }
 
