@@ -28,22 +28,22 @@ def dummy_data():
 
 
 def test_count():
-    dataset = EmbeddingData(ID_PATH, DATA_PATH, DIM)
-    assert dataset.count() == N
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    assert emb_data.count() == N
 
 
 def test_get():
-    dataset = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
     for i in range(N):
-        v = dataset.get(i)
+        v = emb_data.get(i)
         assert len(v) == DIM
 
 
 def test_nn_search():
     k = 1000
-    dataset = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
     exemplar = [random.random() * 2 - 1. for i in range(N)]
-    nn = dataset.nn([exemplar], k, float('inf'))
+    nn = emb_data.nn([exemplar], k, float('inf'))
     assert len(nn) == k
     assert all(d[1] >= 0 for d in nn)
     assert all(nn[i][1] <= nn[i + 1][1] for i in range(len(nn) - 1))
@@ -51,14 +51,26 @@ def test_nn_search():
 
 def test_nn_search_by_id():
     k = 1000
-    dataset = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
 
-    nn = dataset.nn_by_id([0], k, float('inf'))
+    nn = emb_data.nn_by_id([0], k, float('inf'))
     assert len(nn) == k
     assert all(d[1] >= 0 for d in nn)
     assert all(nn[i][1] <= nn[i + 1][1] for i in range(len(nn) - 1))
 
-    nn = dataset.nn_by_id(list(range(25)), k, float('inf'))
+    nn = emb_data.nn_by_id(list(range(25)), k, float('inf'))
     assert len(nn) == k
     assert all(d[1] >= 0 for d in nn)
     assert all(nn[i][1] <= nn[i + 1][1] for i in range(len(nn) - 1))
+
+
+def test_kmeans():
+    k = 10
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    clusters = {}
+    for i, c in emb_data.kmeans(list(range(N)), k):
+        if c not in clusters:
+            clusters[c] = []
+        clusters[c].append(i)
+    assert len(clusters) == k
+    assert sum(len(v) for v in clusters.values()) == N

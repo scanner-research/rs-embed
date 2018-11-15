@@ -4,6 +4,8 @@ extern crate rayon;
 extern crate pyo3;
 extern crate memmap;
 extern crate byteorder;
+extern crate rkm;
+extern crate ndarray;
 
 use rayon::prelude::*;
 use pyo3::prelude::*;
@@ -14,8 +16,10 @@ use std::fs::File;
 use std::io::{Cursor, Read};
 use byteorder::{ReadBytesExt, LittleEndian};
 use memmap::{MmapOptions, Mmap};
+use rkm::kmeans_lloyd;
 
 pub type Id = u64;
+pub type Embedding = Vec<f32>;
 
 fn read_id_file(fname: String) -> Option<Vec<Id>> {
     let mut buf = Vec::new();
@@ -41,7 +45,7 @@ struct EmbeddingData {
 #[pymethods]
 impl EmbeddingData {
 
-    fn _read(&self, i: usize) -> Vec<f32> {
+    fn _read(&self, i: usize) -> Embedding {
         let dim_size = std::mem::size_of::<f32>();
         let ofs = i * self.dim * dim_size;
         let mut rdr = Cursor::new(&self.data[ofs..ofs + self.dim * dim_size]);
@@ -50,9 +54,9 @@ impl EmbeddingData {
         ret
     }
 
-    fn _dists(&self, xs: Vec<Vec<f32>>, threshold: f32) -> Vec<(Id, f32)> {
+    fn _dists(&self, xs: Vec<Embedding>, threshold: f32) -> Vec<(Id, f32)> {
         let mut dists: Vec<(Id, f32)> = self.ids.par_iter().enumerate().map(|(i, id)| {
-            let z: Vec<f32> = self._read(i);
+            let z: Embedding = self._read(i);
             (
                 *id,
                 xs.iter().map(
@@ -68,12 +72,12 @@ impl EmbeddingData {
         dists
     }
 
-    fn get(&self, id: Id) -> PyResult<Vec<f32>> {
+    fn get(&self, id: Id) -> PyResult<Embedding> {
         let idx = self.ids.binary_search(&id).unwrap();
         Ok(self._read(idx))
     }
 
-    fn nn(&self, xs: Vec<Vec<f32>>, k: usize, threshold: f32) -> PyResult<Vec<(Id, f32)>> {
+    fn nn(&self, xs: Vec<Embedding>, k: usize, threshold: f32) -> PyResult<Vec<(Id, f32)>> {
         if xs.len() == 0 {
             Err(exceptions::ValueError::py_err("No input"))
         } else {
@@ -85,7 +89,7 @@ impl EmbeddingData {
         if ids.len() == 0 {
             Err(exceptions::ValueError::py_err("No input"))
         } else {
-            let xs: Vec<Vec<f32>> = ids.iter().map(
+            let xs: Vec<Embedding> = ids.iter().map(
                 |&id| self._read(self.ids.binary_search(&id).unwrap())
             ).collect();
             Ok(self._dists(xs, threshold).into_iter().take(k).collect())
@@ -94,6 +98,23 @@ impl EmbeddingData {
 
     fn count(&self) -> PyResult<usize> {
         Ok(self.ids.len())
+    }
+
+    fn kmeans(&self, ids: Vec<Id>, k: usize) -> PyResult<Vec<(Id, usize)>> {
+        let ids_and_embs: Vec<(Id, Embedding)> = ids.par_iter()
+            .map(|id| (id, self.ids.binary_search(&id)))
+            .filter(|(_, r)| r.is_ok())
+            .map(|(id, r)| (*id, self._read(r.unwrap())))
+            .collect();
+        let n = ids_and_embs.len();
+        let mut data = ndarray::Array2::<f64>::zeros((n, self.dim));
+        for i in 0..n {
+            for j in 0..self.dim {
+                data[[i, j]] = ids_and_embs[i].1[j] as f64;
+            }
+        }
+        let (_, clusters) = kmeans_lloyd(&data.view(), k);
+        Ok(clusters.iter().enumerate().map(|(id, c)| (ids_and_embs[id].0, *c)).collect())
     }
 
     #[new]
