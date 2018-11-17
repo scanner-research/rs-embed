@@ -75,9 +75,12 @@ impl EmbeddingData {
         dists
     }
 
-    fn get(&self, id: Id) -> PyResult<Embedding> {
-        let idx = self.ids.binary_search(&id).unwrap();
-        Ok(self._read(idx))
+    fn get(&self, ids: Vec<Id>) -> PyResult<Vec<(Id, Embedding)>> {
+        Ok(ids.par_iter()
+            .map(|id| (id, self.ids.binary_search(&id)))
+            .filter(|(_, r)| r.is_ok())
+            .map(|(id, r)| (*id, self._read(r.unwrap())))
+            .collect())
     }
 
     fn nn(&self, xs: Vec<Embedding>, k: usize, threshold: f32) -> PyResult<Vec<(Id, f32)>> {

@@ -34,9 +34,13 @@ def test_count():
 
 def test_get():
     emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    batch_result = emb_data.get(list(range(N)))
+    assert len(batch_result) == N
     for i in range(N):
-        v = emb_data.get(i)
+        j, v = emb_data.get([i])[0]
+        assert j == i
         assert len(v) == DIM
+        assert batch_result[i] == (i, v)
 
 
 def test_nn_search():
