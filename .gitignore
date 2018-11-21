@@ -2,6 +2,7 @@
 /build
 /dist
 /.pytest_cache
+/.cache
 /rs_embed.egg-info
 Cargo.lock
 *.pyc
