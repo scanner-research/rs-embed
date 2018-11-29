@@ -32,6 +32,19 @@ def test_count():
     assert emb_data.count() == N
 
 
+def test_exists():
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    ids = [0, 1, 100, 9999, 10000, 10001, 100002]
+    expected = [id < N for id in ids]
+    assert emb_data.exists(ids) == expected
+
+
+def test_sample():
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    for k in [0, 1, 2, 5, 10, 1000]:
+        assert len(emb_data.sample(k)) == k
+
+
 def test_get():
     emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
     batch_result = emb_data.get(list(range(N)))

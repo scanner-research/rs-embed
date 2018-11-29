@@ -1,6 +1,7 @@
 #![feature(specialization)]
 
 extern crate rayon;
+extern crate rand;
 extern crate pyo3;
 extern crate memmap;
 extern crate byteorder;
@@ -11,6 +12,7 @@ extern crate rustlearn;
 use rayon::prelude::*;
 use pyo3::prelude::*;
 use pyo3::exceptions;
+use rand::Rng;
 use std::iter::Sum;
 use std::mem;
 use std::fs::File;
@@ -73,6 +75,21 @@ impl EmbeddingData {
         ).collect();
         dists.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
         dists
+    }
+
+    fn exists(&self, ids: Vec<Id>) -> PyResult<Vec<bool>> {
+        Ok(ids.par_iter()
+            .map(|id| self.ids.binary_search(&id).is_ok())
+            .collect())
+    }
+
+    fn sample(&self, k: usize) -> PyResult<Vec<Id>> {
+        let mut rng = rand::thread_rng();
+        let mut ids: Vec<Id> = Vec::with_capacity(k);
+        for _ in 0..k {
+            ids.push(*(rng.choose(&self.ids).unwrap()));
+        }
+        Ok(ids)
     }
 
     fn get(&self, ids: Vec<Id>) -> PyResult<Vec<(Id, Embedding)>> {
