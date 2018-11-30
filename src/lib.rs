@@ -100,6 +100,34 @@ impl EmbeddingData {
             .collect())
     }
 
+    fn dist(&self, xs: Vec<Embedding>, ids: Vec<Id>) -> PyResult<Vec<f32>> {
+        if xs.len() == 0 {
+            Err(exceptions::ValueError::py_err("No input"))
+        } else {
+            let xs2: Vec<Embedding> = ids.iter().map(
+                |&id| self._read(self.ids.binary_search(&id).unwrap())
+            ).collect();
+            Ok(xs2.par_iter().map(
+                |v2| xs.iter().map(
+                    |v1| f32::sum(
+                        v1.iter().zip(v2.iter()).map(|(a, b)| (a - b).powi(2))
+                    ).sqrt()
+                ).fold(1./0., f32::min)
+            ).collect())
+        }
+    }
+
+    fn dist_by_id(&self, ids1: Vec<Id>, ids2: Vec<Id>) -> PyResult<Vec<f32>> {
+        if ids1.len() == 0 {
+            Err(exceptions::ValueError::py_err("No input"))
+        } else {
+            let xs1: Vec<Embedding> = ids1.iter().map(
+                |&id| self._read(self.ids.binary_search(&id).unwrap())
+            ).collect();
+            self.dist(xs1, ids2)
+        }
+    }
+
     fn nn(&self, xs: Vec<Embedding>, k: usize, threshold: f32) -> PyResult<Vec<(Id, f32)>> {
         if xs.len() == 0 {
             Err(exceptions::ValueError::py_err("No input"))
@@ -115,7 +143,7 @@ impl EmbeddingData {
             let xs: Vec<Embedding> = ids.iter().map(
                 |&id| self._read(self.ids.binary_search(&id).unwrap())
             ).collect();
-            Ok(self._dists(xs, threshold).into_iter().take(k).collect())
+            self.nn(xs, k, threshold)
         }
     }
 

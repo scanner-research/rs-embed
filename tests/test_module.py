@@ -2,6 +2,7 @@ import os
 import random
 import struct
 import pytest
+import numpy as np
 
 from rs_embed import EmbeddingData
 
@@ -54,6 +55,20 @@ def test_get():
         assert j == i
         assert len(v) == DIM
         assert batch_result[i] == (i, v)
+
+
+def test_dist():
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    n1, n2 = 10, 100
+    ids1 = list(range(n1))
+    ids2 = list(range(n2))
+    dists = emb_data.dist_by_id(ids1, ids2)
+    assert len(dists) == len(ids2)
+    assert np.allclose(dists[:n1], 0)
+
+    embs1 = [v for _, v in emb_data.get(ids1)]
+    dists2 = emb_data.dist(embs1, ids2)
+    assert dists == dists2
 
 
 def test_nn_search():
