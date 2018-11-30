@@ -104,15 +104,21 @@ impl EmbeddingData {
         if xs.len() == 0 {
             Err(exceptions::ValueError::py_err("No input"))
         } else {
-            let xs2: Vec<Embedding> = ids.iter().map(
-                |&id| self._read(self.ids.binary_search(&id).unwrap())
-            ).collect();
-            Ok(xs2.par_iter().map(
-                |v2| xs.iter().map(
-                    |v1| f32::sum(
-                        v1.iter().zip(v2.iter()).map(|(a, b)| (a - b).powi(2))
-                    ).sqrt()
-                ).fold(1./0., f32::min)
+            Ok(ids.par_iter().map(
+                |&id| {
+                    let v2opt = self.ids.binary_search(&id);
+                    match v2opt {
+                        Ok(v2ofs) => {
+                            let v2 = self._read(v2ofs);
+                            xs.iter().map(
+                                |v1| f32::sum(
+                                    v1.iter().zip(v2.iter()).map(|(a, b)| (a - b).powi(2))
+                                ).sqrt()
+                            ).fold(1./0., f32::min)
+                        },
+                        Err(_) => 1./0.
+                    }
+                }
             ).collect())
         }
     }

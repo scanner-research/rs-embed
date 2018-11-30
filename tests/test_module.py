@@ -43,7 +43,9 @@ def test_exists():
 def test_sample():
     emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
     for k in [0, 1, 2, 5, 10, 1000]:
-        assert len(emb_data.sample(k)) == k
+        samples = emb_data.sample(k)
+        assert len(samples) == k
+        assert all(emb_data.exists(samples))
 
 
 def test_get():
