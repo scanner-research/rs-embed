@@ -114,7 +114,9 @@ def test_logreg():
     emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
     train_x = list(range(N))
     train_y = [float(i % 2) for i in range(N)]
-    pred = emb_data.logreg(train_x, train_y, -1, 2)
+    weights, pred = emb_data.logreg(
+        train_x, train_y, min_thresh=-1, max_thresh=2,
+        num_epochs=20, learning_rate=0.1, l2_penalty=0.01, l1_penalty=0.)
     assert len(pred) == N
     assert all(a >= 0. and a <= 1. for _, a in pred)
     # Make sure that the model does predict both classes

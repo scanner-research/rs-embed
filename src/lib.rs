@@ -13,7 +13,7 @@ extern crate is_sorted;
 use rayon::prelude::*;
 use pyo3::prelude::*;
 use pyo3::exceptions;
-use rand::Rng;
+use rand::{Rng, thread_rng};
 use std::iter::Sum;
 use std::mem;
 use std::fs::File;
@@ -177,12 +177,13 @@ impl EmbeddingData {
         Ok(clusters.iter().enumerate().map(|(id, c)| (ids_and_embs[id].0, *c)).collect())
     }
 
-    fn logreg(&self, ids: Vec<Id>, labels: Vec<f32>, min_thresh: f32, max_thresh: f32)
-              -> PyResult<Vec<(Id, f32)>> {
+    fn logreg(&self, ids: Vec<Id>, labels: Vec<f32>, min_thresh: f32, max_thresh: f32, 
+              num_epochs: usize, learning_rate: f32, l2_penalty: f32, l1_penalty: f32
+    ) -> PyResult<(Vec<f32>, Vec<(Id, f32)>)> {
         if ids.len() != labels.len() {
             return Err(exceptions::ValueError::py_err("ids.len() != labels.len()"));
         }
-        let embs: Vec<(Embedding, f32)> = ids.par_iter()
+        let mut embs: Vec<(Embedding, f32)> = ids.par_iter()
             .zip(labels.par_iter())
             .map(|(id, label)| (self.ids.binary_search(&id), *label))
             .filter(|(r, _)| r.is_ok())
@@ -191,24 +192,41 @@ impl EmbeddingData {
         if embs.len() == 0 {
             return Err(exceptions::ValueError::py_err("No training examples"));
         }
+        thread_rng().shuffle(&mut embs);
 
         let mut x = Array::zeros(embs.len(), self.dim);
         let mut y = Array::zeros(embs.len(), 1);
         for i in 0..embs.len() {
-            y.set(i, 0, embs[i].1);
+            let l = embs[i].1;
+            if l.is_nan() {
+                return Err(exceptions::ValueError::py_err("Found NaN in the training labels"));
+            }
+            y.set(i, 0, l);
             for j in 0..self.dim {
-                x.set(i, j, embs[i].0[j]);
+                let v = embs[i].0[j];
+                if v.is_nan() {
+                    return Err(exceptions::ValueError::py_err("Found NaN in the training data"));
+                }
+                x.set(i, j, v);
             }
         }
 
         let mut model = Hyperparameters::new(self.dim)
-            .learning_rate(0.1)
-            .l2_penalty(0.1)
-            .l1_penalty(0.0)
-            .one_vs_rest();
+            .learning_rate(learning_rate)
+            .l2_penalty(l2_penalty)
+            .l1_penalty(l1_penalty)
+            .build();
 
-        if !model.fit(&x, &y).is_ok() {
-            return Err(exceptions::Exception::py_err("Failed to fit model"));
+        for _ in 0..num_epochs {
+            if !model.fit(&x, &y).is_ok() {
+                return Err(exceptions::Exception::py_err("Failed to fit model"));
+            }
+        }
+
+        let weights: Vec<f32> = model.get_coefficients().data().to_vec();
+        if weights.iter().any(|v| v.is_nan()) {
+            return Err(exceptions::ValueError::py_err(
+                format!("Found NaN in weights: {:?}", weights)));
         }
 
         let mut predictions: Vec<(Id, f32)> = self.ids.par_iter().enumerate().map(|(i, id)| {
@@ -218,9 +236,12 @@ impl EmbeddingData {
                 x.set(0, i, z[i]);
             }
             (*id, model.decision_function(&x).expect("Failed to predict").get(0, 0) as f32)
-        }).filter(|(_, s)| min_thresh <= *s && *s <= max_thresh).collect();
-        predictions.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
-        Ok(predictions)
+        }).filter(|(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh).collect();
+        if predictions.len() == 0 {
+            return Err(exceptions::ValueError::py_err("Model failed to predict"));
+        }
+        predictions.par_sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
+        Ok((weights, predictions))
     }
 
     #[new]
@@ -235,7 +256,6 @@ impl EmbeddingData {
             },
             None => Err(exceptions::Exception::py_err("Failed to read ids"))
         }
-
     }
 }
 
