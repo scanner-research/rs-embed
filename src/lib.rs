@@ -43,6 +43,14 @@ fn read_id_file(fname: String) -> Option<Vec<Id>> {
     }
 }
 
+fn l2_dist(v: &Embedding, w: &Embedding) -> f32 {
+    f32::sum(
+        v.iter().zip(w.iter()).map(
+            |(a, b)| (a - b).powi(2)
+        )
+    ).sqrt()
+}
+
 #[pyclass]
 struct EmbeddingData {
     ids: Vec<Id>,
@@ -68,9 +76,7 @@ impl EmbeddingData {
             (
                 *id,
                 xs.iter().map(
-                    |x| f32::sum(x.iter().zip(z.iter()).map(
-                        |(a, b)| (a - b).powi(2)
-                    )).sqrt()
+                    |x| l2_dist(x, &z)
                 ).fold(1./0., f32::min)
             )
         }).filter(
@@ -114,9 +120,7 @@ impl EmbeddingData {
                         Ok(v2ofs) => {
                             let v2 = self._read(v2ofs);
                             xs.iter().map(
-                                |v1| f32::sum(
-                                    v1.iter().zip(v2.iter()).map(|(a, b)| (a - b).powi(2))
-                                ).sqrt()
+                                |v1| l2_dist(v1, &v2)
                             ).fold(1./0., f32::min)
                         },
                         Err(_) => 1./0.
@@ -194,7 +198,29 @@ impl EmbeddingData {
         }
         thread_rng().shuffle(&mut embs);
 
-        let mut x = Array::zeros(embs.len(), self.dim);
+        // Embedding dimension + 2
+        let feat_dim = self.dim + 2;
+        
+        // Compute average embedding for each label
+        let count_emb_0: usize = embs.iter().fold(0, 
+            |count, (_, label)| if *label < 0.5 { count } else { count + 1 });
+        let count_emb_1: usize = embs.len() - count_emb_0;
+        let mut avg_emb_0: Embedding = vec![0.; self.dim];
+        let mut avg_emb_1: Embedding = vec![0.; self.dim];
+        for i in 0..embs.len() {
+            let l = embs[i].1;
+            for j in 0..self.dim {
+                let v = embs[i].0[j];
+                if l < 0.5 {
+                    avg_emb_0[j] += v / (count_emb_0 as f32);
+                } else {
+                    avg_emb_1[j] += v / (count_emb_1 as f32);
+                }
+            }
+        }
+        
+        // Instantiate training dataset
+        let mut x = Array::zeros(embs.len(), feat_dim);
         let mut y = Array::zeros(embs.len(), 1);
         for i in 0..embs.len() {
             let l = embs[i].1;
@@ -209,9 +235,14 @@ impl EmbeddingData {
                 }
                 x.set(i, j, v);
             }
+            
+            // Additional features
+            x.set(i, self.dim, l2_dist(&avg_emb_0, &embs[i].0));
+            x.set(i, self.dim + 1, l2_dist(&avg_emb_1, &embs[i].0));
         }
 
-        let mut model = Hyperparameters::new(self.dim)
+        // Instantiate model
+        let mut model = Hyperparameters::new(feat_dim)
             .learning_rate(learning_rate)
             .l2_penalty(l2_penalty)
             .l1_penalty(l1_penalty)
@@ -223,18 +254,23 @@ impl EmbeddingData {
             }
         }
 
+        // Read model weights
         let weights: Vec<f32> = model.get_coefficients().data().to_vec();
         if weights.iter().any(|v| v.is_nan()) {
             return Err(exceptions::ValueError::py_err(
                 format!("Found NaN in weights: {:?}", weights)));
         }
 
+        // Predict on all embeddings
         let mut predictions: Vec<(Id, f32)> = self.ids.par_iter().enumerate().map(|(i, id)| {
             let z: Embedding = self._read(i);
-            let mut x = Array::zeros(1, self.dim);
+            let mut x = Array::zeros(1, feat_dim);
             for i in 0..self.dim {
                 x.set(0, i, z[i]);
             }
+            // Additional features
+            x.set(0, self.dim, l2_dist(&avg_emb_0, &z));
+            x.set(0, self.dim + 1, l2_dist(&avg_emb_1, &z));
             (*id, model.decision_function(&x).expect("Failed to predict").get(0, 0) as f32)
         }).filter(|(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh).collect();
         if predictions.len() == 0 {
