@@ -183,7 +183,7 @@ impl EmbeddingData {
 
     fn logreg(&self, ids: Vec<Id>, labels: Vec<f32>, min_thresh: f32, max_thresh: f32, 
               num_epochs: usize, learning_rate: f32, l2_penalty: f32, l1_penalty: f32
-    ) -> PyResult<(Vec<f32>, Vec<(Id, f32)>)> {
+    ) -> PyResult<(Vec<Vec<f32>>, Vec<(Id, f32)>)> {
         if ids.len() != labels.len() {
             return Err(exceptions::ValueError::py_err("ids.len() != labels.len()"));
         }
@@ -277,7 +277,7 @@ impl EmbeddingData {
             return Err(exceptions::ValueError::py_err("Model failed to predict"));
         }
         predictions.par_sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
-        Ok((weights, predictions))
+        Ok((vec![weights, avg_emb_0, avg_emb_1], predictions))
     }
 
     #[new]
