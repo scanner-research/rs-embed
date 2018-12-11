@@ -109,6 +109,26 @@ impl EmbeddingData {
             .collect())
     }
 
+    fn mean(&self, ids: Vec<Id>) -> PyResult<Embedding> {
+        let embs: Vec<Embedding> = ids.par_iter()
+            .map(|id| self.ids.binary_search(&id))
+            .filter(|r| r.is_ok())
+            .map(|r| self._read(r.unwrap()))
+            .collect();
+        if embs.len() < ids.len() {
+            Err(exceptions::ValueError::py_err("Not ids were found"))
+        } else {
+            let n = embs.len();
+            let mut mean: Embedding = vec![0.; self.dim];
+            for i in 0..n {
+                for j in 0..self.dim {
+                    mean[j] = embs[i][j] / (n as f32);
+                }
+            }
+            Ok(mean)
+        }
+    }
+
     fn dist(&self, xs: Vec<Embedding>, ids: Vec<Id>) -> PyResult<Vec<f32>> {
         if xs.len() == 0 {
             Err(exceptions::ValueError::py_err("No input"))
@@ -181,7 +201,7 @@ impl EmbeddingData {
         Ok(clusters.iter().enumerate().map(|(id, c)| (ids_and_embs[id].0, *c)).collect())
     }
 
-    fn logreg(&self, ids: Vec<Id>, labels: Vec<f32>, min_thresh: f32, max_thresh: f32, 
+    fn logreg(&self, ids: Vec<Id>, labels: Vec<f32>, min_thresh: f32, max_thresh: f32,
               num_epochs: usize, learning_rate: f32, l2_penalty: f32, l1_penalty: f32
     ) -> PyResult<(Vec<Vec<f32>>, Vec<(Id, f32)>)> {
         if ids.len() != labels.len() {
@@ -200,9 +220,9 @@ impl EmbeddingData {
 
         // Embedding dimension + 2
         let feat_dim = self.dim + 2;
-        
+
         // Compute average embedding for each label
-        let count_emb_0: usize = embs.iter().fold(0, 
+        let count_emb_0: usize = embs.iter().fold(0,
             |count, (_, label)| if *label < 0.5 { count } else { count + 1 });
         let count_emb_1: usize = embs.len() - count_emb_0;
         let mut avg_emb_0: Embedding = vec![0.; self.dim];
@@ -218,7 +238,7 @@ impl EmbeddingData {
                 }
             }
         }
-        
+
         // Instantiate training dataset
         let mut x = Array::zeros(embs.len(), feat_dim);
         let mut y = Array::zeros(embs.len(), 1);
@@ -235,7 +255,7 @@ impl EmbeddingData {
                 }
                 x.set(i, j, v);
             }
-            
+
             // Additional features
             x.set(i, self.dim, l2_dist(&avg_emb_0, &embs[i].0));
             x.set(i, self.dim + 1, l2_dist(&avg_emb_1, &embs[i].0));

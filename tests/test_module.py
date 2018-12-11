@@ -59,6 +59,13 @@ def test_get():
         assert batch_result[i] == (i, v)
 
 
+def test_mean():
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    mean = emb_data.mean(list(range(N)))
+    # Dummy data is zero-mean
+    assert np.allclose(mean, [0] * len(mean), rtol=0.01, atol=0.01)
+
+
 def test_dist():
     emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
     n1, n2 = 10, 100
