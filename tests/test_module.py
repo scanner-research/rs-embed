@@ -129,3 +129,10 @@ def test_logreg():
     # Make sure that the model does predict both classes
     assert sum(a > 0.5 for _, a in pred) > N / 4
     assert sum(a < 0.5 for _, a in pred) > N / 4
+
+    pred2 = emb_data.logreg_predict(weights)
+    for p1, p2 in zip(sorted(pred), sorted(pred2)):
+        i1, s1 = p1
+        i2, s2 = p2
+        assert i1 == i2 and np.isclose(s1, s2), \
+            'Predictions from saved model do not match'
