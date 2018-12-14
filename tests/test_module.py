@@ -130,7 +130,7 @@ def test_logreg():
     assert sum(a > 0.5 for _, a in pred) > N / 4
     assert sum(a < 0.5 for _, a in pred) > N / 4
 
-    pred2 = emb_data.logreg_predict(weights)
+    pred2 = emb_data.logreg_predict(weights, min_thresh=-1, max_thresh=2)
     for p1, p2 in zip(sorted(pred), sorted(pred2)):
         i1, s1 = p1
         i2, s2 = p2

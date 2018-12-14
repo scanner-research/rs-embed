@@ -314,7 +314,8 @@ impl EmbeddingData {
         Ok((vec![weights, avg_emb_0, avg_emb_1], predictions))
     }
 
-    fn logreg_predict(&self, model: LogRegModel) -> PyResult<Vec<(Id, f32)>> {
+    fn logreg_predict(&self, model: LogRegModel, min_thresh: f32, max_thresh: f32)
+    -> PyResult<Vec<(Id, f32)>> {
         if model.len() != 3 {
             return Err(exceptions::ValueError::py_err("Invalid model"));
         }
@@ -343,7 +344,7 @@ impl EmbeddingData {
                 score += weights[self._internal.dim + 2];
                 (*id, sigmoid(score))
             }
-        ).collect();
+        ).filter(|(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh).collect();
         predictions.par_sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
         Ok(predictions)
     }
