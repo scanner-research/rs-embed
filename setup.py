@@ -1,7 +1,6 @@
 import sys
 
 from setuptools import setup
-from setuptools.command.test import test as TestCommand
 
 try:
     from setuptools_rust import RustExtension
@@ -16,19 +15,8 @@ except ImportError:
         from setuptools_rust import RustExtension
 
 
-class PyTest(TestCommand):
-    user_options = []
-
-    def run(self):
-        self.run_command("test_rust")
-
-        import subprocess
-
-        subprocess.check_call(["pytest", "tests"])
-
-
-setup_requires = ["setuptools-rust", "wheel"]
-install_requires = []
+setup_requires = ["setuptools-rust", "wheel", "pytest-runner"]
+install_requires = ["numpy"]
 tests_require = install_requires + ["pytest"]
 
 setup(
@@ -41,6 +29,5 @@ setup(
     tests_require=tests_require,
     setup_requires=setup_requires,
     include_package_data=True,
-    zip_safe=False,
-    cmdclass=dict(test=PyTest),
+    zip_safe=False
 )
