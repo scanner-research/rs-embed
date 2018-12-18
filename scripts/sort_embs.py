@@ -35,7 +35,7 @@ def main(in_ids_file, in_emb_file, out_ids_file, out_emb_file, dim):
     assert in_ids_file != out_ids_file
     assert in_emb_file != out_emb_file
 
-    print('Reading id file:', out_ids_file, out_emb_file)
+    print('Reading old files:', in_ids_file, in_emb_file)
     ids = read_ids_file(in_ids_file)
     sorted_pos_and_id = sorted(enumerate(ids), key=lambda x: x[1])
 
