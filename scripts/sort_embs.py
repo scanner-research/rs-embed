@@ -34,6 +34,8 @@ def main(in_ids_file, in_emb_file, out_ids_file, out_emb_file, dim):
     assert dim > 0
     assert in_ids_file != out_ids_file
     assert in_emb_file != out_emb_file
+    assert os.path.getsize(in_ids_file) / ID_SIZE == \
+           os.path.getsize(in_emb_file) / (DIM_SIZE * dim)
 
     print('Reading old files:', in_ids_file, in_emb_file)
     ids = read_ids_file(in_ids_file)
