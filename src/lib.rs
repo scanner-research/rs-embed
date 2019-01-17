@@ -213,8 +213,8 @@ impl EmbeddingData {
         Ok(clusters.iter().enumerate().map(|(id, c)| (ids_and_embs[id].0, *c)).collect())
     }
 
-    fn logreg(&self, ids: Vec<Id>, labels: Vec<f32>, min_thresh: f32, max_thresh: f32,
-              num_epochs: usize, learning_rate: f32, l2_penalty: f32, l1_penalty: f32
+    fn logreg(&self, ids: Vec<Id>, labels: Vec<f32>, num_epochs: usize, learning_rate: f32,
+             l2_penalty: f32, l1_penalty: f32
     ) -> PyResult<LogRegModel> {
         if ids.len() != labels.len() {
             return Err(exceptions::ValueError::py_err("ids.len() != labels.len()"));

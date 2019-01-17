@@ -121,9 +121,9 @@ def test_logreg():
     emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
     train_x = list(range(N))
     train_y = [float(i % 2) for i in range(N)]
-    weights = emb_data.logreg(
-        train_x, train_y, min_thresh=-1, max_thresh=2,
-        num_epochs=20, learning_rate=0.1, l2_penalty=0.01, l1_penalty=0.)
+    weights = emb_data.logreg(train_x, train_y, num_epochs=20,
+                              learning_rate=0.1, l2_penalty=0.01,
+                              l1_penalty=0.)
 
     pred1 = emb_data.logreg_predict(weights, min_thresh=-1, max_thresh=2,
                                     test_ids=[])
