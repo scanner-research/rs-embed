@@ -136,3 +136,16 @@ def test_logreg():
         i2, s2 = p2
         assert i1 == i2 and np.isclose(s1, s2), \
             'Predictions from saved model do not match'
+
+
+def test_knn():
+    emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
+    train_x = list(range(N))
+    train_y = [float(i % 2) for i in range(N)]
+    pred = emb_data.knn_predict(train_x, train_y, 5, min_thresh=-1,
+                                max_thresh=2)
+    assert len(pred) == N
+    assert all(a >= 0. and a <= 1. for _, a in pred)
+    # Make sure that the model does predict both classes
+    assert sum(a > 0.5 for _, a in pred) > N / 4
+    assert sum(a < 0.5 for _, a in pred) > N / 4

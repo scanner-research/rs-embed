@@ -8,6 +8,7 @@ extern crate byteorder;
 extern crate rkm;
 extern crate ndarray;
 extern crate rustlearn;
+extern crate kdtree;
 extern crate is_sorted;
 
 use rayon::prelude::*;
@@ -23,6 +24,8 @@ use memmap::{MmapOptions, Mmap};
 use rkm::kmeans_lloyd;
 use rustlearn::prelude::*;
 use rustlearn::linear_models::sgdclassifier::Hyperparameters;
+use kdtree::KdTree;
+use kdtree::distance::squared_euclidean;
 use is_sorted::IsSorted;
 
 pub type Id = u64;
@@ -343,6 +346,45 @@ impl EmbeddingData {
                 // Bias term
                 score += weights[self._internal.dim + 2];
                 (*id, sigmoid(score))
+            }
+        ).filter(|(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh).collect();
+        predictions.par_sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
+        Ok(predictions)
+    }
+
+    fn knn_predict(&self, ids: Vec<Id>, labels: Vec<f32>, k: usize, min_thresh: f32,
+                   max_thresh: f32
+    ) -> PyResult<(Vec<(Id, f32)>)> {
+        if ids.len() != labels.len() {
+            return Err(exceptions::ValueError::py_err("ids.len() != labels.len()"));
+        }
+        let mut embs: Vec<(Embedding, f32)> = ids.par_iter()
+            .zip(labels.par_iter())
+            .map(|(id, label)| (self._internal.ids.binary_search(&id), *label))
+            .filter(|(r, _)| r.is_ok())
+            .map(|(r, label)| (self._internal.read(r.unwrap()), label))
+            .collect();
+        if embs.len() == 0 {
+            return Err(exceptions::ValueError::py_err("No training examples"));
+        }
+
+        let mut kdtree = KdTree::new(self._internal.dim);
+        for i in 0..embs.len() {
+            let l = embs[i].1;
+            if l.is_nan() {
+                return Err(exceptions::ValueError::py_err("Found NaN in the training labels"));
+            }
+            kdtree.add(&embs[i].0, l);
+        }
+
+        // Predict on all embeddings
+        let mut predictions: Vec<(Id, f32)> = self._internal.ids.par_iter().enumerate().map(
+            |(i, id)| {
+                let z: Embedding = self._internal.read(i);
+                let score: f32 = kdtree.nearest(&z, k, &squared_euclidean).unwrap().iter().fold(
+                    0., |sum, (_, v)| sum + *v / k as f32
+                );
+                (*id, score)
             }
         ).filter(|(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh).collect();
         predictions.par_sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
