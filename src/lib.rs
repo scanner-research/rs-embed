@@ -215,7 +215,7 @@ impl EmbeddingData {
 
     fn logreg(&self, ids: Vec<Id>, labels: Vec<f32>, min_thresh: f32, max_thresh: f32,
               num_epochs: usize, learning_rate: f32, l2_penalty: f32, l1_penalty: f32
-    ) -> PyResult<(LogRegModel, Vec<(Id, f32)>)> {
+    ) -> PyResult<LogRegModel> {
         if ids.len() != labels.len() {
             return Err(exceptions::ValueError::py_err("ids.len() != labels.len()"));
         }
@@ -293,31 +293,11 @@ impl EmbeddingData {
             return Err(exceptions::ValueError::py_err(
                 format!("Found NaN in weights: {:?}", weights)));
         }
-
-        // Predict on all embeddings
-        let mut predictions: Vec<(Id, f32)> = self._internal.ids.par_iter().enumerate().map(
-            |(i, id)| {
-                let z: Embedding = self._internal.read(i);
-                let mut x = Array::zeros(1, feat_dim);
-                for i in 0..self._internal.dim {
-                    x.set(0, i, z[i]);
-                }
-                // Additional features
-                x.set(0, self._internal.dim, l2_dist(&avg_emb_0, &z));
-                x.set(0, self._internal.dim + 1, l2_dist(&avg_emb_1, &z));
-                x.set(0, self._internal.dim + 2, 1.);
-                (*id, model.decision_function(&x).expect("Failed to predict").get(0, 0) as f32)
-            }
-        ).filter(|(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh).collect();
-
-        if predictions.len() == 0 {
-            return Err(exceptions::ValueError::py_err("Model failed to predict"));
-        }
-        predictions.par_sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
-        Ok((vec![weights, avg_emb_0, avg_emb_1], predictions))
+        Ok(vec![weights, avg_emb_0, avg_emb_1])
     }
 
-    fn logreg_predict(&self, model: LogRegModel, min_thresh: f32, max_thresh: f32)
+    fn logreg_predict(&self, model: LogRegModel, min_thresh: f32, max_thresh: f32,
+                      test_ids: Vec<Id>)
     -> PyResult<Vec<(Id, f32)>> {
         if model.len() != 3 {
             return Err(exceptions::ValueError::py_err("Invalid model"));
@@ -332,28 +312,40 @@ impl EmbeddingData {
             return Err(exceptions::ValueError::py_err("Invalid model: bad weights"));
         }
 
-        // Predict on all embeddings
-        let mut predictions: Vec<(Id, f32)> = self._internal.ids.par_iter().enumerate().map(
+        let ids_and_idxs: Vec<(usize, &Id)> = if test_ids.len() == 0 {
+            self._internal.ids.par_iter().enumerate().collect()
+        } else {
+            test_ids.par_iter().map(
+                |id| (self._internal.ids.binary_search(&id), id)
+            ).filter(
+                |(r, _)| r.is_ok()
+            ).map(
+                |(r, id)| (r.unwrap(), id)
+            ).collect()
+        };
+        let mut predictions: Vec<(Id, f32)> = ids_and_idxs.par_iter().map(
             |(i, id)| {
-                let z: Embedding = self._internal.read(i);
+                let z: Embedding = self._internal.read(*i);
                 let mut score = 0.;
-                for i in 0..self._internal.dim {
-                    score += weights[i] * z[i];
+                for j in 0..self._internal.dim {
+                    score += weights[j] * z[j];
                 }
                 // Additional features
                 score += weights[self._internal.dim] * l2_dist(avg_emb_0, &z);
                 score += weights[self._internal.dim + 1] * l2_dist(avg_emb_1, &z);
                 // Bias term
                 score += weights[self._internal.dim + 2];
-                (*id, sigmoid(score))
+                (**id, sigmoid(score))
             }
-        ).filter(|(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh).collect();
+        ).filter(
+            |(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh
+        ).collect();
         predictions.par_sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
         Ok(predictions)
     }
 
     fn knn_predict(&self, ids: Vec<Id>, labels: Vec<f32>, k: usize, min_thresh: f32,
-                   max_thresh: f32
+                   max_thresh: f32, test_ids: Vec<Id>
     ) -> PyResult<(Vec<(Id, f32)>)> {
         if ids.len() != labels.len() {
             return Err(exceptions::ValueError::py_err("ids.len() != labels.len()"));
@@ -377,14 +369,24 @@ impl EmbeddingData {
             kdtree.add(&embs[i].0, l);
         }
 
-        // Predict on all embeddings
-        let mut predictions: Vec<(Id, f32)> = self._internal.ids.par_iter().enumerate().map(
+        let ids_and_idxs: Vec<(usize, &Id)> = if test_ids.len() == 0 {
+            self._internal.ids.par_iter().enumerate().collect()
+        } else {
+            test_ids.par_iter().map(
+                |id| (self._internal.ids.binary_search(&id), id)
+            ).filter(
+                |(r, _)| r.is_ok()
+            ).map(
+                |(r, id)| (r.unwrap(), id)
+            ).collect()
+        };
+        let mut predictions: Vec<(Id, f32)> = ids_and_idxs.par_iter().map(
             |(i, id)| {
-                let z: Embedding = self._internal.read(i);
+                let z: Embedding = self._internal.read(*i);
                 let score: f32 = kdtree.nearest(&z, k, &squared_euclidean).unwrap().iter().fold(
                     0., |sum, (_, v)| sum + *v / k as f32
                 );
-                (*id, score)
+                (**id, score)
             }
         ).filter(|(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh).collect();
         predictions.par_sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());

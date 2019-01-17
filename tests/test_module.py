@@ -121,17 +121,15 @@ def test_logreg():
     emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
     train_x = list(range(N))
     train_y = [float(i % 2) for i in range(N)]
-    weights, pred = emb_data.logreg(
+    weights = emb_data.logreg(
         train_x, train_y, min_thresh=-1, max_thresh=2,
         num_epochs=20, learning_rate=0.1, l2_penalty=0.01, l1_penalty=0.)
-    assert len(pred) == N
-    assert all(a >= 0. and a <= 1. for _, a in pred)
-    # Make sure that the model does predict both classes
-    assert sum(a > 0.5 for _, a in pred) > N / 4
-    assert sum(a < 0.5 for _, a in pred) > N / 4
 
-    pred2 = emb_data.logreg_predict(weights, min_thresh=-1, max_thresh=2)
-    for p1, p2 in zip(sorted(pred), sorted(pred2)):
+    pred1 = emb_data.logreg_predict(weights, min_thresh=-1, max_thresh=2,
+                                    test_ids=[])
+    pred2 = emb_data.logreg_predict(weights, min_thresh=-1, max_thresh=2,
+                                    test_ids=[])
+    for p1, p2 in zip(sorted(pred1), sorted(pred2)):
         i1, s1 = p1
         i2, s2 = p2
         assert i1 == i2 and np.isclose(s1, s2), \
@@ -143,7 +141,7 @@ def test_knn():
     train_x = list(range(N))
     train_y = [float(i % 2) for i in range(N)]
     pred = emb_data.knn_predict(train_x, train_y, 5, min_thresh=-1,
-                                max_thresh=2)
+                                max_thresh=2, test_ids=[])
     assert len(pred) == N
     assert all(a >= 0. and a <= 1. for _, a in pred)
     # Make sure that the model does predict both classes
