@@ -1,3 +1,3 @@
-from .rs_embed import EmbeddingData
+from .embed import EmbeddingData
 
 __all__ = ["EmbeddingData"]

@@ -14,7 +14,8 @@ extern crate is_sorted;
 use rayon::prelude::*;
 use pyo3::prelude::*;
 use pyo3::exceptions;
-use rand::{Rng, thread_rng};
+use rand::thread_rng;
+use rand::seq::SliceRandom;
 use std::iter::Sum;
 use std::mem;
 use std::fs::File;
@@ -59,13 +60,13 @@ fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
-struct EmbeddingDataImpl {
+struct _RsEmbeddingDataImpl {
     ids: Vec<Id>,
     data: Mmap,
     dim: usize
 }
 
-impl EmbeddingDataImpl {
+impl _RsEmbeddingDataImpl {
     // Internal helpers not exposed to Python and Pyo3
 
     fn read(&self, i: usize) -> Embedding {
@@ -85,8 +86,10 @@ impl EmbeddingDataImpl {
             .collect()
     }
 
-    fn dists(&self, xs: &Vec<Embedding>, threshold: f32) -> Vec<(Id, f32)> {
-        let mut dists: Vec<(Id, f32)> = self.ids.par_iter().enumerate().map(|(i, id)| {
+    fn all_dists(&self, xs: &Vec<Embedding>, threshold: f32, stride: usize) -> Vec<(Id, f32)> {
+        let mut dists: Vec<(Id, f32)> = self.ids.par_iter().enumerate().filter(
+            |(i, _)| i % (stride + 1) == 0
+        ).map(|(i, id)| {
             let z: Embedding = self.read(i);
             (
                 *id,
@@ -100,15 +103,52 @@ impl EmbeddingDataImpl {
         dists.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
         dists
     }
+
+    fn read_with_labels(&self, ids: &Vec<Id>, labels: &Vec<f32>) -> Vec<(Embedding, f32)> {
+        ids.par_iter()
+            .zip(labels.par_iter())
+            .map(|(id, label)| (self.ids.binary_search(&id), *label))
+            .filter(|(r, _)| r.is_ok())
+            .map(|(r, label)| (self.read(r.unwrap()), label))
+            .collect()
+    }
+
+    fn get_ids_and_idxs(&self, ids: &Vec<Id>) -> Vec<(usize, Id)> {
+        ids.par_iter().map(
+            |id| (self.ids.binary_search(&id), id)
+        ).filter(
+            |(r, _)| r.is_ok()
+        ).map(
+            |(r, id)| (r.unwrap(), *id)
+        ).collect()
+    }
+
+    fn all_ids_and_idxs(&self, stride: usize) -> Vec<(usize, Id)> {
+        self.ids.par_iter().cloned().enumerate().filter(
+            |(i, _)| i % (stride + 1) == 0
+        ).collect()
+    }
 }
 
 #[pyclass]
-struct EmbeddingData {
-    _internal: EmbeddingDataImpl
+struct RsEmbeddingData {
+    _internal: _RsEmbeddingDataImpl
 }
 
 #[pymethods]
-impl EmbeddingData {
+impl RsEmbeddingData {
+
+    fn count(&self) -> PyResult<usize> {
+        Ok(self._internal.ids.len())
+    }
+
+    fn ids(&self, start: usize, n: usize) -> PyResult<Vec<Id>> {
+        if start >= self._internal.ids.len() {
+            Ok(vec![])
+        } else {
+            Ok(self._internal.ids[start..start + n].iter().cloned().collect())
+        }
+    }
 
     fn exists(&self, ids: Vec<Id>) -> PyResult<Vec<bool>> {
         Ok(ids.par_iter()
@@ -117,12 +157,7 @@ impl EmbeddingData {
     }
 
     fn sample(&self, k: usize) -> PyResult<Vec<Id>> {
-        let mut rng = rand::thread_rng();
-        let mut ids: Vec<Id> = Vec::with_capacity(k);
-        for _ in 0..k {
-            ids.push(*(rng.choose(&self._internal.ids).unwrap()));
-        }
-        Ok(ids)
+        Ok(self._internal.ids.choose_multiple(&mut thread_rng(), k).cloned().collect())
     }
 
     fn get(&self, ids: Vec<Id>) -> PyResult<Vec<(Id, Embedding)>> {
@@ -177,27 +212,23 @@ impl EmbeddingData {
         }
     }
 
-    fn nn(&self, xs: Vec<Embedding>, k: usize, threshold: f32) -> PyResult<Vec<(Id, f32)>> {
+    fn nn(&self, xs: Vec<Embedding>, k: usize, threshold: f32, stride: usize) -> PyResult<Vec<(Id, f32)>> {
         if xs.len() == 0 {
             Err(exceptions::ValueError::py_err("No input"))
         } else {
-            Ok(self._internal.dists(&xs, threshold).into_iter().take(k).collect())
+            Ok(self._internal.all_dists(&xs, threshold, stride).into_iter().take(k).collect())
         }
     }
 
-    fn nn_by_id(&self, ids: Vec<Id>, k: usize, threshold: f32) -> PyResult<Vec<(Id, f32)>> {
+    fn nn_by_id(&self, ids: Vec<Id>, k: usize, threshold: f32, stride: usize) -> PyResult<Vec<(Id, f32)>> {
         if ids.len() == 0 {
             Err(exceptions::ValueError::py_err("No input"))
         } else {
             let xs: Vec<Embedding> = ids.iter().map(
                 |&id| self._internal.read(self._internal.ids.binary_search(&id).unwrap())
             ).collect();
-            self.nn(xs, k, threshold)
+            self.nn(xs, k, threshold, stride)
         }
-    }
-
-    fn count(&self) -> PyResult<usize> {
-        Ok(self._internal.ids.len())
     }
 
     fn kmeans(&self, ids: Vec<Id>, k: usize) -> PyResult<Vec<(Id, usize)>> {
@@ -219,18 +250,13 @@ impl EmbeddingData {
         if ids.len() != labels.len() {
             return Err(exceptions::ValueError::py_err("ids.len() != labels.len()"));
         }
-        let mut embs: Vec<(Embedding, f32)> = ids.par_iter()
-            .zip(labels.par_iter())
-            .map(|(id, label)| (self._internal.ids.binary_search(&id), *label))
-            .filter(|(r, _)| r.is_ok())
-            .map(|(r, label)| (self._internal.read(r.unwrap()), label))
-            .collect();
+        let mut embs = self._internal.read_with_labels(&ids, &labels);
         if embs.len() == 0 {
             return Err(exceptions::ValueError::py_err("No training examples"));
         }
-        thread_rng().shuffle(&mut embs);
+        embs.shuffle(&mut thread_rng());
 
-        // Embedding dimension + 2
+        // Embedding dimension + 3
         let feat_dim = self._internal.dim + 3;
 
         // Compute average embedding for each label
@@ -297,8 +323,11 @@ impl EmbeddingData {
     }
 
     fn logreg_predict(&self, model: LogRegModel, min_thresh: f32, max_thresh: f32,
-                      test_ids: Vec<Id>)
+                      stride: usize, test_ids: Vec<Id>)
     -> PyResult<Vec<(Id, f32)>> {
+        if stride > 0 && test_ids.len() != 0 {
+            return Err(exceptions::NotImplementedError::py_err("Cannot stride with explicit test ids"));
+        }
         if model.len() != 3 {
             return Err(exceptions::ValueError::py_err("Invalid model"));
         }
@@ -312,16 +341,10 @@ impl EmbeddingData {
             return Err(exceptions::ValueError::py_err("Invalid model: bad weights"));
         }
 
-        let ids_and_idxs: Vec<(usize, &Id)> = if test_ids.len() == 0 {
-            self._internal.ids.par_iter().enumerate().collect()
+        let ids_and_idxs: Vec<(usize, Id)> = if test_ids.len() == 0 {
+            self._internal.all_ids_and_idxs(stride)
         } else {
-            test_ids.par_iter().map(
-                |id| (self._internal.ids.binary_search(&id), id)
-            ).filter(
-                |(r, _)| r.is_ok()
-            ).map(
-                |(r, id)| (r.unwrap(), id)
-            ).collect()
+            self._internal.get_ids_and_idxs(&test_ids)
         };
         let mut predictions: Vec<(Id, f32)> = ids_and_idxs.par_iter().map(
             |(i, id)| {
@@ -335,7 +358,7 @@ impl EmbeddingData {
                 score += weights[self._internal.dim + 1] * l2_dist(avg_emb_1, &z);
                 // Bias term
                 score += weights[self._internal.dim + 2];
-                (**id, sigmoid(score))
+                (*id, sigmoid(score))
             }
         ).filter(
             |(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh
@@ -344,18 +367,17 @@ impl EmbeddingData {
         Ok(predictions)
     }
 
-    fn knn_predict(&self, ids: Vec<Id>, labels: Vec<f32>, k: usize, min_thresh: f32,
-                   max_thresh: f32, test_ids: Vec<Id>
+    fn knn_predict(&self, train_ids: Vec<Id>, labels: Vec<f32>, k: usize,
+                   min_thresh: f32, max_thresh: f32, stride: usize,
+                   test_ids: Vec<Id>
     ) -> PyResult<(Vec<(Id, f32)>)> {
-        if ids.len() != labels.len() {
+        if stride > 0 && test_ids.len() != 0 {
+            return Err(exceptions::NotImplementedError::py_err("Cannot stride with explicit test ids"));
+        }
+        if train_ids.len() != labels.len() {
             return Err(exceptions::ValueError::py_err("ids.len() != labels.len()"));
         }
-        let mut embs: Vec<(Embedding, f32)> = ids.par_iter()
-            .zip(labels.par_iter())
-            .map(|(id, label)| (self._internal.ids.binary_search(&id), *label))
-            .filter(|(r, _)| r.is_ok())
-            .map(|(r, label)| (self._internal.read(r.unwrap()), label))
-            .collect();
+        let embs = self._internal.read_with_labels(&train_ids, &labels);
         if embs.len() == 0 {
             return Err(exceptions::ValueError::py_err("No training examples"));
         }
@@ -366,19 +388,13 @@ impl EmbeddingData {
             if l.is_nan() {
                 return Err(exceptions::ValueError::py_err("Found NaN in the training labels"));
             }
-            kdtree.add(&embs[i].0, l);
+            let _ = kdtree.add(&embs[i].0, l);
         }
 
-        let ids_and_idxs: Vec<(usize, &Id)> = if test_ids.len() == 0 {
-            self._internal.ids.par_iter().enumerate().collect()
+        let ids_and_idxs: Vec<(usize, Id)> = if test_ids.len() == 0 {
+            self._internal.all_ids_and_idxs(stride)
         } else {
-            test_ids.par_iter().map(
-                |id| (self._internal.ids.binary_search(&id), id)
-            ).filter(
-                |(r, _)| r.is_ok()
-            ).map(
-                |(r, id)| (r.unwrap(), id)
-            ).collect()
+            self._internal.get_ids_and_idxs(&test_ids)
         };
         let mut predictions: Vec<(Id, f32)> = ids_and_idxs.par_iter().map(
             |(i, id)| {
@@ -386,7 +402,7 @@ impl EmbeddingData {
                 let score: f32 = kdtree.nearest(&z, k, &squared_euclidean).unwrap().iter().fold(
                     0., |sum, (_, v)| sum + *v / k as f32
                 );
-                (**id, score)
+                (*id, score)
             }
         ).filter(|(_, s)| !s.is_nan() && min_thresh <= *s && *s <= max_thresh).collect();
         predictions.par_sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
@@ -399,8 +415,8 @@ impl EmbeddingData {
             Some(ids) => {
                 let mmap = MmapOptions::new().map(&File::open(&data_file)?);
                 match mmap {
-                    Ok(m) => obj.init(|_| EmbeddingData {
-                        _internal: EmbeddingDataImpl { ids: ids, data: m, dim: dim }
+                    Ok(m) => obj.init(|_| RsEmbeddingData {
+                        _internal: _RsEmbeddingDataImpl { ids: ids, data: m, dim: dim }
                     }),
                     Err(s) => Err(exceptions::Exception::py_err(s.to_string()))
                 }
@@ -412,6 +428,6 @@ impl EmbeddingData {
 
 #[pymodinit]
 fn rs_embed(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<EmbeddingData>()?;
+    m.add_class::<RsEmbeddingData>()?;
     Ok(())
 }
