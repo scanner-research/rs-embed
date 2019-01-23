@@ -127,7 +127,6 @@ class EmbeddingData(object):
         id_file_size = os.path.getsize(id_file)
         if id_file_size % ID_BYTES != 0:
             raise Exception('Id file size is not a multiple of sizeof(u64)')
-        n = int(id_file_size / ID_BYTES)
         data_file_size = os.path.getsize(data_file)
         if data_file_size % DIM_BYTES != 0:
             raise Exception(
