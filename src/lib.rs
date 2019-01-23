@@ -9,7 +9,6 @@ extern crate rkm;
 extern crate ndarray;
 extern crate rustlearn;
 extern crate kdtree;
-extern crate is_sorted;
 
 use rayon::prelude::*;
 use pyo3::prelude::*;
@@ -27,11 +26,21 @@ use rustlearn::prelude::*;
 use rustlearn::linear_models::sgdclassifier::Hyperparameters;
 use kdtree::KdTree;
 use kdtree::distance::squared_euclidean;
-use is_sorted::IsSorted;
 
 pub type Id = u64;
 pub type Embedding = Vec<f32>;
 pub type LogRegModel = Vec<Vec<f32>>;
+
+fn is_sorted(ids: &Vec<Id>) -> bool {
+    let mut max = ids[0];
+    for i in 0..ids.len() {
+        if ids[i] < max {
+            return false;
+        }
+        max = ids[i]
+    }
+    true
+}
 
 fn read_id_file(fname: String) -> Option<Vec<Id>> {
     let mut buf = Vec::new();
@@ -41,7 +50,7 @@ fn read_id_file(fname: String) -> Option<Vec<Id>> {
             let mut ids = vec![0u64; buf.len() / mem::size_of::<u64>()];
             let mut rdr = Cursor::new(buf);
             rdr.read_u64_into::<LittleEndian>(&mut ids).unwrap();
-            assert!(ids.iter().is_sorted());
+            assert!(is_sorted(&ids));
             Some(ids)
         },
         Err(_) => None
