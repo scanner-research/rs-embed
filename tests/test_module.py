@@ -89,6 +89,8 @@ def test_nn_search():
     assert all(d[1] >= 0 for d in nn)
     assert all(nn[i][1] <= nn[i + 1][1] for i in range(len(nn) - 1))
 
+    emb_data.nn([exemplar], k, float('inf'), sample=10)
+
 
 def test_nn_search_by_id():
     k = 1000
@@ -103,6 +105,8 @@ def test_nn_search_by_id():
     assert len(nn) == k
     assert all(d[1] >= 0 for d in nn)
     assert all(nn[i][1] <= nn[i + 1][1] for i in range(len(nn) - 1))
+
+    emb_data.nn_by_id(list(range(25)), k, float('inf'), sample=10)
 
 
 def test_kmeans():
@@ -133,6 +137,8 @@ def test_logreg():
         assert i1 == i2 and np.isclose(s1, s2), \
             'Predictions from saved model do not match'
 
+    emb_data.logreg_predict(weights, sample=10)
+
 
 def test_knn():
     emb_data = EmbeddingData(ID_PATH, DATA_PATH, DIM)
@@ -145,3 +151,5 @@ def test_knn():
     # Make sure that the model does predict both classes
     assert sum(a > 0.5 for _, a in pred) > N / 4
     assert sum(a < 0.5 for _, a in pred) > N / 4
+
+    emb_data.knn_predict(train_x, train_y, 5, sample=10)

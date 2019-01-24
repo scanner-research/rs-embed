@@ -65,16 +65,16 @@ class EmbeddingData(object):
         return self._data.dist_by_id(ids1, ids2)
 
     def nn(
-        self, xs: List[Embedding], k: int, threshold: float, stride=0
+        self, xs: List[Embedding], k: int, threshold: float, sample=1
     ) -> List[Tuple[Id, float]]:
         """Compute distances to xs"""
-        return self._data.nn(xs, k, threshold, stride)
+        return self._data.nn(xs, k, threshold, sample)
 
     def nn_by_id(
-        self, ids: List[Id], k: int, threshold: float, stride=0
+        self, ids: List[Id], k: int, threshold: float, sample=1
     ) -> List[Tuple[Id, float]]:
         """Compute distances to ids"""
-        return self._data.nn_by_id(ids, k, threshold, stride)
+        return self._data.nn_by_id(ids, k, threshold, sample)
 
     def kmeans(self, ids: List[Id], k: int) -> List[Tuple[Id, int]]:
         """
@@ -94,7 +94,7 @@ class EmbeddingData(object):
             l1_penalty)
 
     def logreg_predict(
-        self, weights, min_thresh=0., max_thresh=1., stride=0,
+        self, weights, min_thresh=0., max_thresh=1., sample=1,
         ids=None
     ) -> List[Tuple[Id, float]]:
         """
@@ -103,12 +103,12 @@ class EmbeddingData(object):
         If ids=None, then predictions will be made on all embeddings.
         """
         return self._data.logreg_predict(
-            weights, min_thresh, max_thresh, stride,
+            weights, min_thresh, max_thresh, sample,
             [] if ids is None else ids)
 
     def knn_predict(
         self, train_ids: List[Id], labels: List[int], k: int,
-        min_thresh=0., max_thresh=1., stride=0, ids=None
+        min_thresh=0., max_thresh=1., sample=1, ids=None
     ) -> List[Tuple[Id, float]]:
         """
         Make binary predictions using k-NN.
@@ -118,7 +118,7 @@ class EmbeddingData(object):
         assert max(labels) <= 1
         assert min(labels) >= 0
         return self._data.knn_predict(
-            train_ids, labels, k, min_thresh, max_thresh, stride,
+            train_ids, labels, k, min_thresh, max_thresh, sample,
             [] if ids is None else ids)
 
     @staticmethod

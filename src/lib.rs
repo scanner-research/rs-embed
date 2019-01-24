@@ -13,8 +13,9 @@ extern crate kdtree;
 use rayon::prelude::*;
 use pyo3::prelude::*;
 use pyo3::exceptions;
-use rand::thread_rng;
+use rand::{FromEntropy, Rng, thread_rng};
 use rand::seq::SliceRandom;
+use rand::rngs::SmallRng;
 use std::iter::Sum;
 use std::mem;
 use std::fs::File;
@@ -95,9 +96,10 @@ impl _RsEmbeddingDataImpl {
             .collect()
     }
 
-    fn all_dists(&self, xs: &Vec<Embedding>, threshold: f32, stride: usize) -> Vec<(Id, f32)> {
+    fn all_dists(&self, xs: &Vec<Embedding>, threshold: f32, sample: usize) -> Vec<(Id, f32)> {
+        let rand_ofs = thread_rng().gen::<usize>() % sample;
         let mut dists: Vec<(Id, f32)> = self.ids.par_iter().enumerate().filter(
-            |(i, _)| i % (stride + 1) == 0
+            |(i, _)| (i + rand_ofs) % sample == 0
         ).map(|(i, id)| {
             let z: Embedding = self.read(i);
             (
@@ -132,9 +134,10 @@ impl _RsEmbeddingDataImpl {
         ).collect()
     }
 
-    fn all_ids_and_idxs(&self, stride: usize) -> Vec<(usize, Id)> {
+    fn all_ids_and_idxs(&self, sample: usize) -> Vec<(usize, Id)> {
+        let rand_ofs = thread_rng().gen::<usize>() % sample;
         self.ids.par_iter().cloned().enumerate().filter(
-            |(i, _)| i % (stride + 1) == 0
+            |(i, _)| (i + rand_ofs) % sample == 0
         ).collect()
     }
 }
@@ -166,7 +169,7 @@ impl RsEmbeddingData {
     }
 
     fn sample(&self, k: usize) -> PyResult<Vec<Id>> {
-        Ok(self._internal.ids.choose_multiple(&mut thread_rng(), k).cloned().collect())
+        Ok(self._internal.ids.choose_multiple(&mut SmallRng::from_entropy(), k).cloned().collect())
     }
 
     fn get(&self, ids: Vec<Id>) -> PyResult<Vec<(Id, Embedding)>> {
@@ -221,22 +224,27 @@ impl RsEmbeddingData {
         }
     }
 
-    fn nn(&self, xs: Vec<Embedding>, k: usize, threshold: f32, stride: usize) -> PyResult<Vec<(Id, f32)>> {
+    fn nn(&self, xs: Vec<Embedding>, k: usize, threshold: f32, sample: usize)
+    -> PyResult<Vec<(Id, f32)>> {
+        if sample < 1 {
+            return Err(exceptions::ValueError::py_err("Sampling fraction cannot be <1"));
+        }
         if xs.len() == 0 {
             Err(exceptions::ValueError::py_err("No input"))
         } else {
-            Ok(self._internal.all_dists(&xs, threshold, stride).into_iter().take(k).collect())
+            Ok(self._internal.all_dists(&xs, threshold, sample).into_iter().take(k).collect())
         }
     }
 
-    fn nn_by_id(&self, ids: Vec<Id>, k: usize, threshold: f32, stride: usize) -> PyResult<Vec<(Id, f32)>> {
+    fn nn_by_id(&self, ids: Vec<Id>, k: usize, threshold: f32, sample: usize)
+    -> PyResult<Vec<(Id, f32)>> {
         if ids.len() == 0 {
             Err(exceptions::ValueError::py_err("No input"))
         } else {
             let xs: Vec<Embedding> = ids.iter().map(
                 |&id| self._internal.read(self._internal.ids.binary_search(&id).unwrap())
             ).collect();
-            self.nn(xs, k, threshold, stride)
+            self.nn(xs, k, threshold, sample)
         }
     }
 
@@ -263,7 +271,7 @@ impl RsEmbeddingData {
         if embs.len() == 0 {
             return Err(exceptions::ValueError::py_err("No training examples"));
         }
-        embs.shuffle(&mut thread_rng());
+        embs.shuffle(&mut SmallRng::from_entropy());
 
         // Embedding dimension + 3
         let feat_dim = self._internal.dim + 3;
@@ -332,12 +340,13 @@ impl RsEmbeddingData {
     }
 
     fn logreg_predict(&self, model: LogRegModel, min_thresh: f32, max_thresh: f32,
-                      stride: usize, test_ids: Vec<Id>)
+                      sample: usize, test_ids: Vec<Id>)
     -> PyResult<Vec<(Id, f32)>> {
-        if stride > 0 && test_ids.len() != 0 {
-            return Err(exceptions::NotImplementedError::py_err("Cannot stride with explicit test ids"));
-        }
-        if model.len() != 3 {
+        if sample < 1 {
+            return Err(exceptions::ValueError::py_err("Sampling fraction cannot be <1"));
+        } else if sample > 0 && test_ids.len() != 0 {
+            return Err(exceptions::NotImplementedError::py_err("Cannot sample with explicit test ids"));
+        } else if model.len() != 3 {
             return Err(exceptions::ValueError::py_err("Invalid model"));
         }
         let weights: &Vec<f32> = &model[0];
@@ -351,7 +360,7 @@ impl RsEmbeddingData {
         }
 
         let ids_and_idxs: Vec<(usize, Id)> = if test_ids.len() == 0 {
-            self._internal.all_ids_and_idxs(stride)
+            self._internal.all_ids_and_idxs(sample)
         } else {
             self._internal.get_ids_and_idxs(&test_ids)
         };
@@ -377,13 +386,14 @@ impl RsEmbeddingData {
     }
 
     fn knn_predict(&self, train_ids: Vec<Id>, labels: Vec<f32>, k: usize,
-                   min_thresh: f32, max_thresh: f32, stride: usize,
+                   min_thresh: f32, max_thresh: f32, sample: usize,
                    test_ids: Vec<Id>
     ) -> PyResult<(Vec<(Id, f32)>)> {
-        if stride > 0 && test_ids.len() != 0 {
-            return Err(exceptions::NotImplementedError::py_err("Cannot stride with explicit test ids"));
-        }
-        if train_ids.len() != labels.len() {
+        if sample < 1 {
+            return Err(exceptions::ValueError::py_err("Sampling fraction cannot be <1"));
+        } else if sample > 1 && test_ids.len() != 0 {
+            return Err(exceptions::NotImplementedError::py_err("Cannot sample with explicit test ids"));
+        } else if train_ids.len() != labels.len() {
             return Err(exceptions::ValueError::py_err("ids.len() != labels.len()"));
         }
         let embs = self._internal.read_with_labels(&train_ids, &labels);
@@ -401,7 +411,7 @@ impl RsEmbeddingData {
         }
 
         let ids_and_idxs: Vec<(usize, Id)> = if test_ids.len() == 0 {
-            self._internal.all_ids_and_idxs(stride)
+            self._internal.all_ids_and_idxs(sample)
         } else {
             self._internal.get_ids_and_idxs(&test_ids)
         };
