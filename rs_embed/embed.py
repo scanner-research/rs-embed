@@ -56,11 +56,11 @@ class EmbeddingData(object):
         """Compute mean of embeddings"""
         return self._data.mean(ids)
 
-    def dist(self, xs: List[Embedding], ids: List[Id]) -> Embedding:
+    def dist(self, xs: List[Embedding], ids: List[Id]) -> List[float]:
         """Compute distance of ids to xs"""
         return self._data.dist(xs, ids)
 
-    def dist_by_id(self, ids1: List[Id], ids2: List[Id]) -> Embedding:
+    def dist_by_id(self, ids1: List[Id], ids2: List[Id]) -> List[float]:
         """Compute distance of ids2 to ids1"""
         return self._data.dist_by_id(ids1, ids2)
 
