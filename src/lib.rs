@@ -5,10 +5,14 @@ extern crate rand;
 extern crate pyo3;
 extern crate memmap;
 extern crate byteorder;
-extern crate rkm;
+#[macro_use(s)]
 extern crate ndarray;
+extern crate ndarray_parallel;
+extern crate num;
 extern crate rustlearn;
 extern crate kdtree;
+
+mod kmeans;
 
 use rayon::prelude::*;
 use pyo3::prelude::*;
@@ -22,7 +26,7 @@ use std::fs::File;
 use std::io::{Cursor, Read};
 use byteorder::{ReadBytesExt, LittleEndian};
 use memmap::{MmapOptions, Mmap};
-use rkm::kmeans_lloyd;
+use kmeans::kmeans_lloyd;
 use rustlearn::prelude::*;
 use rustlearn::linear_models::sgdclassifier::Hyperparameters;
 use kdtree::KdTree;
@@ -248,7 +252,7 @@ impl RsEmbeddingData {
         }
     }
 
-    fn kmeans(&self, ids: Vec<Id>, k: usize) -> PyResult<Vec<(Id, usize)>> {
+    fn kmeans(&self, ids: Vec<Id>, k: usize, max_iterations: usize) -> PyResult<Vec<(Id, usize)>> {
         let ids_and_embs: Vec<(Id, Embedding)> = self._internal.get_ok(&ids);
         let n = ids_and_embs.len();
         let mut data = ndarray::Array2::<f64>::zeros((n, self._internal.dim));
@@ -257,8 +261,13 @@ impl RsEmbeddingData {
                 data[[i, j]] = ids_and_embs[i].1[j] as f64;
             }
         }
-        let (_, clusters) = kmeans_lloyd(&data.view(), k);
-        Ok(clusters.iter().enumerate().map(|(id, c)| (ids_and_embs[id].0, *c)).collect())
+        match kmeans_lloyd(&data.view(), k, max_iterations) {
+            Ok((_, clusters)) => Ok(
+                clusters.iter().enumerate().map(
+                    |(id, c)| (ids_and_embs[id].0, *c)
+                ).collect()),
+            Err(s) => Err(exceptions::RuntimeError::py_err("Maximum number of iterations reached"))
+        }
     }
 
     fn logreg(&self, ids: Vec<Id>, labels: Vec<f32>, num_epochs: usize, learning_rate: f32,

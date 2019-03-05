@@ -76,11 +76,12 @@ class EmbeddingData(object):
         """Compute distances to ids"""
         return self._data.nn_by_id(ids, k, threshold, sample)
 
-    def kmeans(self, ids: List[Id], k: int) -> List[Tuple[Id, int]]:
+    def kmeans(self, ids: List[Id], k: int,
+               max_iterations: int = 1000) -> List[Tuple[Id, int]]:
         """
         Compute kmeans clusters. Returns ids and cluster assignments.
         """
-        return self._data.kmeans(ids, k)
+        return self._data.kmeans(ids, k, max_iterations)
 
     def logreg(
         self, ids: List[Id], labels: List[int],
