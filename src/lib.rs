@@ -443,9 +443,12 @@ impl RsEmbeddingData {
             Some(ids) => {
                 let mmap = MmapOptions::new().map(&File::open(&data_file)?);
                 match mmap {
-                    Ok(m) => obj.init(|_| RsEmbeddingData {
-                        _internal: _RsEmbeddingDataImpl { ids: ids, data: m, dim: dim }
-                    }),
+                    Ok(m) => {
+                        obj.init(RsEmbeddingData {
+                            _internal: _RsEmbeddingDataImpl { ids: ids, data: m, dim: dim }
+                        });
+                        Ok(())
+                    },
                     Err(s) => Err(exceptions::Exception::py_err(s.to_string()))
                 }
             },
@@ -454,8 +457,8 @@ impl RsEmbeddingData {
     }
 }
 
-#[pymodinit]
-fn rs_embed(_py: Python, m: &PyModule) -> PyResult<()> {
+#[pymodule]
+fn rs_embed(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<RsEmbeddingData>()?;
     Ok(())
 }
